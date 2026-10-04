@@ -136,9 +136,10 @@ namespace Yamadev.YamaStream
 
         public void Resolve() => ResolveCompleted(Track.GetVRCUrl(), _resolveRevision);
 
-        public void ResolveCompleted(VRCUrl url, int revision)
+        public void ResolveCompleted(VRCUrl url, int revision, bool waitAfterResolver = false)
         {
             if (revision != _resolveRevision || string.IsNullOrEmpty(Track.GetUrl())) return;
+            if (waitAfterResolver) _nextVideoRequestTime = Mathf.Max(_nextVideoRequestTime, Time.time + 5.1f);
             _pendingVideoUrl = url;
             _pendingResolveRevision = revision;
             _pendingVideoRequest = true;

@@ -80,7 +80,7 @@ namespace Yamadev.YamaStream.Modules
         {
             if (!_requestInFlight) return;
             _requestInFlight = false;
-            _controller.ResolveCompleted(_callbackUrl, _requestRevision);
+            _controller.ResolveCompleted(_callbackUrl, _requestRevision, true);
             if (_resolveQueued) SendCustomEventDelayedFrames(nameof(ContinueResolve), 1);
         }
 
