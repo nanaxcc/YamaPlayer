@@ -118,7 +118,7 @@ namespace Yamadev.YamaStream
             {
                 if (!_isLocal && !Networking.IsOwner(gameObject))
                 { _paused = value; return; }
-                if (!value && IsPreloading) { RequestPlay(); return; }
+                if (IsPreloading) { _paused = value; return; }
                 _paused = value;
                 if (_paused) VideoPlayerHandle.Pause();
                 else
