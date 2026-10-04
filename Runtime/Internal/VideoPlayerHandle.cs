@@ -29,6 +29,9 @@ namespace Yamadev.YamaStream
         VRCUrl _url = VRCUrl.Empty;
         bool _stopped = true;
         bool _loading;
+        bool _loadOnly;
+        bool _ready;
+        bool _startRequested;
         float _lastLoaded;
 
         void Start()
@@ -96,6 +99,8 @@ namespace Yamadev.YamaStream
             }
         }
 
+        public bool IsReady => UseFallbackHandle ? _fallbackHandle.IsReady : _ready;
+
         public bool IsLive
         {
             get
@@ -162,11 +167,15 @@ namespace Yamadev.YamaStream
         #region ListenerEvents
         public override void OnVideoReady()
         {
+            if (!_loading || !BaseVideoPlayer.IsReady) return;
+            _ready = true;
+            if (_loadOnly) _loading = false;
             if (_listener != null) _listener.OnVideoReady();
         }
 
         public override void OnVideoStart()
         {
+            if (_loadOnly && !_startRequested) { BaseVideoPlayer.Pause(); return; }
             if (_stopped && !_loading)
             {
                 BaseVideoPlayer.Stop();
@@ -183,7 +192,7 @@ namespace Yamadev.YamaStream
 
         public override void OnVideoEnd()
         {
-            if (IsLive || Duration == 0) return;
+            if (_stopped || IsLive || Duration == 0) return;
             _url = VRCUrl.Empty;
             if (_listener != null) _listener.OnVideoEnd();
             Stop();
@@ -191,8 +200,10 @@ namespace Yamadev.YamaStream
 
         public override void OnVideoError(VideoError videoError)
         {
+            if (_stopped && !_loading && !_ready) return;
             _stopped = true;
             _loading = false;
+            _ready = false;
             if (_listener != null) _listener.OnVideoError(videoError);
         }
 
@@ -209,10 +220,36 @@ namespace Yamadev.YamaStream
                 _fallbackHandle.PlayUrl(url);
                 return;
             }
+            _loadOnly = false;
+            _ready = false;
+            _startRequested = false;
             _url = url;
+            _stopped = true;
             _loading = true;
             _lastLoaded = UnityEngine.Time.time;
             BaseVideoPlayer.PlayURL(_url);
+        }
+
+        public void LoadUrl(VRCUrl url)
+        {
+            if (UseFallbackHandle) { _fallbackHandle.LoadUrl(url); return; }
+            _url = url;
+            _loadOnly = true;
+            _ready = false;
+            _startRequested = false;
+            _stopped = true;
+            _loading = true;
+            _lastLoaded = UnityEngine.Time.time;
+            BaseVideoPlayer.LoadURL(url);
+        }
+
+        public void StartLoaded()
+        {
+            if (UseFallbackHandle) { _fallbackHandle.StartLoaded(); return; }
+            if (!_loadOnly || !_ready || _startRequested) return;
+            _startRequested = true;
+            _loading = true;
+            BaseVideoPlayer.Play();
         }
 
         public void Play()
@@ -222,7 +259,7 @@ namespace Yamadev.YamaStream
                 _fallbackHandle.Play();
                 return;
             }
-            if (_stopped || BaseVideoPlayer.IsPlaying) return;
+            if ((_loadOnly && !_startRequested) || _stopped || BaseVideoPlayer.IsPlaying) return;
             BaseVideoPlayer.Play();
             if (_listener != null) _listener.OnVideoPlay();
         }
@@ -246,10 +283,14 @@ namespace Yamadev.YamaStream
                 _fallbackHandle.Stop();
                 return;
             }
-            if (_stopped && !_loading) return;
-            BaseVideoPlayer.Stop();
+            if (_stopped && !_loading && !_ready) return;
             _stopped = true;
             _loading = false;
+            _ready = false;
+            _loadOnly = false;
+            _startRequested = false;
+            BaseVideoPlayer.Stop();
+            resetTexture();
             if (_listener != null) _listener.OnVideoStop();
         }
 

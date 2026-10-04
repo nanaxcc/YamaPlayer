@@ -25,6 +25,9 @@ namespace Yamadev.YamaStream.Modules
         [SerializeField] VRCUrl _callbackYoutubeUrl;
         [SerializeField] VRCUrl _callbackNiconicoUrl;
         VRCUrl _callbackUrl;
+        int _requestRevision;
+        bool _requestInFlight;
+        bool _resolveQueued;
 #if UNITY_ANDROID
         bool _isQuest = true;
 #else
@@ -45,6 +48,15 @@ namespace Yamadev.YamaStream.Modules
 
         public void ResolveTrack()
         {
+#if WEB_UNIT_INCLUDED
+            if (_requestInFlight || _client.IsLoading)
+            {
+                _resolveQueued = true;
+                SendCustomEventDelayedFrames(nameof(ContinueResolve), 1);
+                return;
+            }
+#endif
+            _resolveQueued = false;
             Track track = _controller.Track;
             if (!_isQuest)
             {
@@ -64,16 +76,43 @@ namespace Yamadev.YamaStream.Modules
         }
 
 #if WEB_UNIT_INCLUDED
-        public override void OnRequestSuccess(IVRCStringDownload result) => _controller.VideoPlayerHandle.PlayUrl(_callbackUrl);
+        public override void OnRequestSuccess(IVRCStringDownload result)
+        {
+            if (!_requestInFlight) return;
+            _requestInFlight = false;
+            _controller.ResolveCompleted(_callbackUrl, _requestRevision);
+            if (_resolveQueued) SendCustomEventDelayedFrames(nameof(ContinueResolve), 1);
+        }
+
+        public override void OnRequestError()
+        {
+            if (!_requestInFlight) return;
+            _requestInFlight = false;
+            if (_requestRevision == _controller.ResolveRevision)
+                _controller.OnVideoError(VRC.SDK3.Components.Video.VideoError.PlayerError);
+            if (_resolveQueued) SendCustomEventDelayedFrames(nameof(ContinueResolve), 1);
+        }
 #endif
+
+        public void ContinueResolve()
+        {
+#if WEB_UNIT_INCLUDED
+            if (_requestInFlight || !_resolveQueued) return;
+            if (_client.IsLoading) { SendCustomEventDelayedFrames(nameof(ContinueResolve), 1); return; }
+            if (string.IsNullOrEmpty(_controller.Track.GetUrl())) { _resolveQueued = false; return; }
+            ResolveTrack();
+#endif
+        }
 
         public void PlayYoutubeVideo(string url)
         {
 #if WEB_UNIT_INCLUDED
             Debug.Log($"[<color=#ff70ab>YamaStream</color>] Resolve youtube url: {url}");
             string id = url.Replace("https://youtube.com/watch?v=", "").Replace("https://www.youtube.com/watch?v=", "").Split('&')[0];
-            _client.Request(VRCUrl.Empty, id, this);
             _callbackUrl = _callbackYoutubeUrl;
+            _requestRevision = _controller.ResolveRevision;
+            _requestInFlight = true;
+            if (!_client.Request(VRCUrl.Empty, id, this)) _requestInFlight = false;
 #endif
         }
 
@@ -82,8 +121,10 @@ namespace Yamadev.YamaStream.Modules
 #if WEB_UNIT_INCLUDED
             Debug.Log($"[<color=#ff70ab>YamaStream</color>] Resolve niconico url: {url}");
             string id = url.Replace("https://nicovideo.jp/watch/", "").Replace("https://www.nicovideo.jp/watch/", "").Split('?')[0];
-            _client.Request(VRCUrl.Empty, id, this);
             _callbackUrl = _callbackNiconicoUrl;
+            _requestRevision = _controller.ResolveRevision;
+            _requestInFlight = true;
+            if (!_client.Request(VRCUrl.Empty, id, this)) _requestInFlight = false;
 #endif
         }
     }

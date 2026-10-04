@@ -34,6 +34,7 @@ namespace Yamadev.YamaStream
         Listener[] _listeners = { };
         int _errorRetryCount = 0;
         VRCUrl _retryTargetUrl = VRCUrl.Empty;
+        float _retryNotBefore;
         bool _isReload;
         float _lastSetTime = 0f;
         float _repeatCooling = 0.6f;
@@ -43,6 +44,7 @@ namespace Yamadev.YamaStream
 
         void Update()
         {
+            PumpVideoRequest();
             if (OutOfRepeat(VideoTime) && Time.time - _lastSetTime > _repeatCooling)
                 SetTime(Repeat.ToRepeatStatus().GetStartTime());
             if (IsPlaying && Time.time - _syncFrequency > _lastSync) DoSync();
@@ -81,7 +83,17 @@ namespace Yamadev.YamaStream
             set
             {
                 if (_videoPlayerType == value) return;
+                if (!_isLocal && !Networking.IsOwner(gameObject))
+                { _videoPlayerType = value; return; }
+                if (!_changingTrack)
+                {
+                    CancelPendingVideo();
+                    _loadPhase = 0;
+                    _trackRevision++;
+                }
                 VideoPlayerHandle.Stop();
+                if (!string.IsNullOrEmpty(Track.GetUrl())) OnVideoStop();
+                _localLoadPhase = 0;
                 _videoPlayerType = value;
                 if (Networking.IsOwner(gameObject) && !_isLocal) RequestSerialization();
                 foreach (Listener listener in _listeners) listener.OnPlayerChanged();
@@ -104,9 +116,16 @@ namespace Yamadev.YamaStream
             get => _paused;
             set
             {
+                if (!_isLocal && !Networking.IsOwner(gameObject))
+                { _paused = value; return; }
+                if (!value && IsPreloading) { RequestPlay(); return; }
                 _paused = value;
                 if (_paused) VideoPlayerHandle.Pause();
-                else VideoPlayerHandle.Play();
+                else
+                {
+                    if (_localLoadPhase == 2) VideoPlayerHandle.StartLoaded();
+                    VideoPlayerHandle.Play();
+                }
 #if AUDIOLINK_V1
                 if (_audioLink != null && _useAudioLink)
                     _audioLink.SetMediaPlaying(_paused ? MediaPlaying.Paused : IsLive ? MediaPlaying.Streaming : MediaPlaying.Playing);
@@ -126,7 +145,13 @@ namespace Yamadev.YamaStream
             {
                 _stopped = value;
                 _isReload = false;
-                if (_stopped) VideoPlayerHandle.Stop();
+                if (!_isLocal && !Networking.IsOwner(gameObject)) return;
+                if (_stopped)
+                {
+                    CancelPendingVideo();
+                    VideoPlayerHandle.Stop();
+                    if (!string.IsNullOrEmpty(Track.GetUrl())) OnVideoStop();
+                }
                 if (Networking.IsOwner(gameObject) && !_isLocal) RequestSerialization();
             }
         }
@@ -228,17 +253,18 @@ namespace Yamadev.YamaStream
         public bool IsPlaying => VideoPlayerHandle.IsPlaying;
         public float Duration => VideoPlayerHandle.Duration;
         public float VideoTime => VideoPlayerHandle.VideoTime;
-        public bool IsLoading => VideoPlayerHandle.IsLoading;
+        public bool IsLoading => _pendingVideoRequest || VideoPlayerHandle.IsLoading;
         public bool IsReload => _isReload;
         public bool IsLive => float.IsInfinity(Duration);
 
         public void Reload()
         {
-            if (!Stopped && !IsLoading) PlayTrack(Track, true);
+            if (!IsPreloading && !Stopped && !IsLoading) PlayTrack(Track, true);
         }
 
         public void ErrorRetry()
         {
+            if (Time.time < _retryNotBefore) return;
             var currentUrl = Track.GetVRCUrl();
 
             if (VRCUrl.IsNullOrEmpty(_retryTargetUrl) || _retryTargetUrl != currentUrl)
@@ -255,7 +281,7 @@ namespace Yamadev.YamaStream
                 return;
             }
 
-            _resolveTrack.Invoke();
+            ResolveTrack.Invoke();
             foreach (Listener listener in _listeners) listener.OnVideoRetry();
         }
 
@@ -292,6 +318,7 @@ namespace Yamadev.YamaStream
             if (_errorRetryCount < _maxErrorRetry)
             {
                 _errorRetryCount++;
+                _retryNotBefore = Time.time + _retryAfterSeconds;
                 _retryTargetUrl = Track.GetVRCUrl();
                 PrintLog($"Scheduling retry {_errorRetryCount}/{_maxErrorRetry} in {_retryAfterSeconds} seconds");
                 SendCustomEventDelayedSeconds(nameof(ErrorRetry), _retryAfterSeconds);
@@ -332,13 +359,40 @@ namespace Yamadev.YamaStream
 
         public override void OnDeserialization()
         {
+            initialize();
             Track track = Track.New(_targetPlayer, _title, _url, _originalUrl);
             foreach (Listener listener in _listeners) listener.OnTrackSynced(track.GetUrl());
-            if (track.GetUrl() != Track.GetUrl())
+            bool stopped = _stopped;
+            bool paused = _paused;
+            if (_appliedTrackRevision != _trackRevision || track.GetUrl() != Track.GetUrl())
             {
-                Stopped = true;
-                PlayTrack(track);
+                if (!string.IsNullOrEmpty(track.GetUrl())) StartTrackLocal(track, _loadPhase);
+                else
+                {
+                    _changingTrack = true;
+                    foreach (VideoPlayerHandle handle in _videoPlayerHandles) handle.Stop();
+                    _changingTrack = false;
+                    CancelPendingVideo();
+                    _localLoadPhase = 0;
+                    _appliedTrackRevision = _trackRevision;
+                    Track = track;
+                }
             }
+            _localLoadPhase = _loadPhase;
+            _stopped = stopped;
+            _paused = paused;
+            if (_localLoadPhase == 2)
+            {
+                if (paused) VideoPlayerHandle.Pause();
+                else { VideoPlayerHandle.StartLoaded(); VideoPlayerHandle.Play(); }
+            }
+            else if (_localLoadPhase == 0)
+            {
+                if (stopped) VideoPlayerHandle.Stop();
+                else if (paused) VideoPlayerHandle.Pause();
+                else VideoPlayerHandle.Play();
+            }
+            foreach (Listener listener in _listeners) listener.OnVideoReady();
             DoSync(true);
             GenerateDynamicPlaylists();
         }
@@ -346,12 +400,14 @@ namespace Yamadev.YamaStream
         #region Video Event
         public override void OnVideoReady()
         {
+            if (_localLoadPhase == 2 && !_paused) VideoPlayerHandle.StartLoaded();
             foreach (Listener listener in _listeners) listener.OnVideoReady();
             PrintLog($"{_videoPlayerType}: Video ready.");
         }
 
         public override void OnVideoStart()
         {
+            if (IsPreloading) { VideoPlayerHandle.Pause(); return; }
             _errorRetryCount = 0;
             _retryTargetUrl = VRCUrl.Empty;
             _stopped = false;
@@ -362,7 +418,7 @@ namespace Yamadev.YamaStream
             if (_audioLink != null && _useAudioLink)
                 _audioLink.SetMediaPlaying(IsLive ? MediaPlaying.Streaming : MediaPlaying.Playing);
 #endif
-            if (Networking.IsOwner(gameObject) && !_isLocal && !_isReload)
+            if (Networking.IsOwner(gameObject) && !_isLocal && !_isReload && _localLoadPhase != 2)
             {
                 SyncTime = 0f;
                 RequestSerialization();
@@ -391,6 +447,12 @@ namespace Yamadev.YamaStream
 
         public override void OnVideoStop()
         {
+            if (_changingTrack) return;
+            bool wasPreloading = IsPreloading;
+            CancelPendingVideo();
+            _loadPhase = 0;
+            _localLoadPhase = 0;
+            if (Networking.IsOwner(gameObject)) _trackRevision++;
             if (!_isReload)
             {
                 _paused = false;
@@ -399,7 +461,7 @@ namespace Yamadev.YamaStream
                 _retryTargetUrl = VRCUrl.Empty;
                 _repeat = new Vector3(0f, 0f, 999999f);
                 VideoPlayerHandle.UseFallbackHandle = false;
-                if (!string.IsNullOrEmpty(Track.GetUrl())) _history.AddTrack(Track);
+                if (!wasPreloading && !string.IsNullOrEmpty(Track.GetUrl())) _history.AddTrack(Track);
                 Track = Track.New(_videoPlayerType, string.Empty, VRCUrl.Empty);
 #if AUDIOLINK_V1
                 if (_audioLink != null && _useAudioLink)

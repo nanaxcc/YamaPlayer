@@ -53,6 +53,7 @@ namespace Yamadev.YamaStream.UI
         [SerializeField] Text _progressTooltip;
 
         [Header("Main UI - Playback")]
+        bool _preloadError;
         [SerializeField] Button _play;
         [SerializeField] Button _pause;
         [SerializeField] Button _loop;
@@ -227,6 +228,7 @@ namespace Yamadev.YamaStream.UI
             if (_volumeHelper != null && _volumeTooltip != null)
                 _volumeTooltip.text = $"{Mathf.Ceil(_volumeHelper.Percent * 100)}%";
             if (!_controller.Stopped) updateProgress();
+            if (_controller.IsPreloading) { updatePlaybackView(); updateLoadingView(); }
             if (_uiBoxCollider != null)
                 _uiBoxCollider.enabled = !outOfDistance && (!_disableUIOnPickUp || !Networking.LocalPlayer.PickUpInHand());
         }
@@ -391,7 +393,7 @@ namespace Yamadev.YamaStream.UI
         {
             if (!CheckPermission()) return;
             _controller.TakeOwnership();
-            _controller.Paused = false;
+            _controller.RequestPlay();
         }
 
         public void Pause()
@@ -762,6 +764,7 @@ namespace Yamadev.YamaStream.UI
                     if (actions.TryFind("Remove", out var removeMark)) removeMark.gameObject.SetActive(_isQueuePage);
                     if (actions.TryFind("Add", out var addMark)) addMark.gameObject.SetActive(!_isQueuePage);
                     if (actions.TryFind("Play", out var PlayMark)) PlayMark.gameObject.SetActive(!_isQueuePage);
+                    if (actions.TryFind("Preload", out var preloadMark)) preloadMark.gameObject.SetActive(!_isQueuePage);
                 }
                 if (cell.TryGetComponentLocal<Animator>(out var ani)) ani.SetTrigger("Reset");
                 if (cell.TryGetComponentLocal<IndexTrigger>(out var trigger)) trigger.SetProgramVariable("_varibaleObject", _playlistTracks.Indexes[i]);
@@ -810,6 +813,17 @@ namespace Yamadev.YamaStream.UI
                 _playlistIndex >= 0 && _playlistIndex < _controller.Playlists.Length ? _controller.Playlists[_playlistIndex] : null;
             _controller.TakeOwnership();
             if (playlist != null) _controller.PlayTrack(playlist, _playlistTrackIndex);
+        }
+
+        public void PreloadPlaylistTrack()
+        {
+            if (!CheckPermission()) return;
+            if (_playlistTracks == null || _playlistTrackIndex < 0) return;
+            Playlist playlist = _isHistoryPage ? _controller.History :
+                _playlistIndex >= 0 && _playlistIndex < _controller.Playlists.Length ? _controller.Playlists[_playlistIndex] : null;
+            if (playlist == null || _playlistTrackIndex >= playlist.Length) return;
+            _controller.TakeOwnership();
+            _controller.PreloadTrack(playlist, _playlistTrackIndex);
         }
 
         public void AddDynamicPlaylist()
@@ -870,7 +884,11 @@ namespace Yamadev.YamaStream.UI
 
         void updatePlaybackView()
         {
-            if (_play != null) _play.gameObject.SetActive(!_controller.IsPlaying);
+            if (_play != null)
+            {
+                _play.gameObject.SetActive(!_controller.IsPlaying);
+                _play.interactable = !_controller.IsPreloading || _controller.CanStartPreloaded;
+            }
             if (_pause != null) _pause.gameObject.SetActive(_controller.IsPlaying);
             if (_loop != null) _loop.gameObject.SetActive(!_controller.Loop);
             if (_loopOff != null) _loopOff.gameObject.SetActive(_controller.Loop);
@@ -964,9 +982,10 @@ namespace Yamadev.YamaStream.UI
 
         void updateLoadingView()
         {
-            if (_loading != null) _loading.SetActive(_controller.IsLoading);
-            if (_animator != null) _animator.SetBool("Loading", _controller.IsLoading);
-            if (_message != null) _message.text = i18n.GetValue("videoLoadingMessage");
+            if (_preloadError && _controller.IsPreloading) return;
+            if (_loading != null) _loading.SetActive(_controller.IsLoading || _controller.IsPreloading);
+            if (_animator != null) _animator.SetBool("Loading", _controller.IsLoading || _controller.IsPreloading);
+            if (_message != null) _message.text = _controller.IsPreloading ? (_controller.CanStartPreloaded ? "読込完了：再生待ち" : "読込のみ：準備中") : i18n.GetValue("videoLoadingMessage");
         }
 
         public void GeneratePermissionView()
@@ -1105,6 +1124,7 @@ namespace Yamadev.YamaStream.UI
                         if (actions.TryFind("Remove/Text", out var remove) && remove.TryGetComponentLocal<Text>(out var removeText)) removeText.text = i18n.GetValue("remove");
                         if (actions.TryFind("Add/Text", out var addQueue) && addQueue.TryGetComponentLocal<Text>(out var addQueueText)) addQueueText.text = i18n.GetValue("addQueue");
                         if (actions.TryFind("Play/Text", out var play) && play.TryGetComponentLocal<Text>(out var playText)) playText.text = i18n.GetValue("playVideo");
+                        if (actions.TryFind("Preload/Text", out var preload) && preload.TryGetComponentLocal<Text>(out var preloadText)) preloadText.text = "読込のみ";
                     }
                 }
             }
@@ -1112,7 +1132,11 @@ namespace Yamadev.YamaStream.UI
 
         public override void OnPlayerJoined(VRCPlayerApi player) => GeneratePermissionView();
         public override void OnPlayerLeft(VRCPlayerApi player) => GeneratePermissionView();
-        public override void OnVideoReady() => UpdateUI();
+        public override void OnVideoReady()
+        {
+            if (_controller.VideoPlayerHandle.IsReady) _preloadError = false;
+            UpdateUI();
+        }
         public override void OnVideoStart() => UpdateUI();
         public override void OnVideoEnd() => UpdateUI();
         public override void OnVideoPlay() => UpdateUI();
@@ -1122,7 +1146,11 @@ namespace Yamadev.YamaStream.UI
             UpdateUI();
             GeneratePlaylistTracks();
         }
-        public override void OnVideoError(VideoError videoError) => updateErrorView(videoError);
+        public override void OnVideoError(VideoError videoError)
+        {
+            _preloadError = _controller.IsPreloading;
+            updateErrorView(videoError);
+        }
         public override void OnPlayerChanged() => UpdateUI();
         public override void OnSlideModeChanged() => UpdateUI();
         public override void OnLoopChanged() => updatePlaybackView();
@@ -1133,10 +1161,11 @@ namespace Yamadev.YamaStream.UI
         public override void OnTrackUpdated() => updateTrackView();
         public override void OnUrlChanged()
         {
+            _preloadError = false;
             updateLoadingView();
             GeneratePlaylistTracks();
         }
-        public override void OnVideoRetry() => updateLoadingView();
+        public override void OnVideoRetry() { _preloadError = false; updateLoadingView(); }
         public override void OnVideoInfoLoaded()
         {
             if (_isQueuePage) GeneratePlaylistTracks();
