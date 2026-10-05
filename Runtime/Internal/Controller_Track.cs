@@ -55,6 +55,15 @@ namespace Yamadev.YamaStream
             set => _resolveTrack = value;
         }
 
+        public void PreloadTrack(Track track)
+        {
+            if (!Utilities.IsValid(track) || !Utilities.IsValid(track.GetVRCUrl()) ||
+                !track.GetUrl().IsValidUrl()) return;
+            _activePlaylistIndex = -1;
+            _playingTrackIndex = -1;
+            BeginTrack(track, true, false);
+        }
+
         public void PreloadTrack(Playlist playlist, int index)
         {
             if (playlist == null || index < 0 || index >= playlist.Length) return;
