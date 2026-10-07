@@ -67,10 +67,17 @@ namespace Yamadev.YamaStream
 
         public VideoPlayerHandle FallbackHandle => _fallbackHandle;
 
+        // Handles reference each other as fallback (Unity <-> AVPro), so this must not
+        // recurse through the fallback's fallback (Udon stack overflow, 2026-10-08 on-device).
         public void SetLoadAttempt(int attempt)
         {
             _loadAttempt = attempt;
-            if (_fallbackHandle != null) _fallbackHandle.SetLoadAttempt(attempt);
+            if (_fallbackHandle != null && _fallbackHandle != this) _fallbackHandle.SetOwnLoadAttempt(attempt);
+        }
+
+        public void SetOwnLoadAttempt(int attempt)
+        {
+            _loadAttempt = attempt;
         }
 
         bool IsCurrentCallback()
