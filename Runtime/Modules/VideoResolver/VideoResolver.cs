@@ -112,7 +112,11 @@ namespace Yamadev.YamaStream.Modules
             _callbackUrl = _callbackYoutubeUrl;
             _requestRevision = _controller.ResolveRevision;
             _requestInFlight = true;
-            if (!_client.Request(VRCUrl.Empty, id, this)) _requestInFlight = false;
+            if (!_client.Request(VRCUrl.Empty, id, this))
+            {
+                _requestInFlight = false;
+                _controller.OnResolverRequestRejected(_requestRevision);
+            }
 #endif
         }
 
@@ -124,7 +128,11 @@ namespace Yamadev.YamaStream.Modules
             _callbackUrl = _callbackNiconicoUrl;
             _requestRevision = _controller.ResolveRevision;
             _requestInFlight = true;
-            if (!_client.Request(VRCUrl.Empty, id, this)) _requestInFlight = false;
+            if (!_client.Request(VRCUrl.Empty, id, this))
+            {
+                _requestInFlight = false;
+                _controller.OnResolverRequestRejected(_requestRevision);
+            }
 #endif
         }
     }

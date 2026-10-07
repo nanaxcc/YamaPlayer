@@ -19,6 +19,7 @@ namespace Yamadev.YamaStream
         [UdonSynced] int _playingTrackIndex = -1;
         [UdonSynced] VRCUrl[] _dynamicUrls = new VRCUrl[] { };
         Playlist[] _dynamicPlaylists = new Playlist[] { };
+        int _forwardScheduledGeneration;
 
         public Playlist[] Playlists
         {
@@ -112,6 +113,8 @@ namespace Yamadev.YamaStream
 
         public void RunForward()
         {
+            if (_showMode || !Networking.IsOwner(gameObject) ||
+                _forwardScheduledGeneration != _videoGeneration) return;
             if (IsPreloading || IsPlaying || IsLoading) return;
             _queue.TakeOwnership();
             Forward();
@@ -119,6 +122,7 @@ namespace Yamadev.YamaStream
 
         public void Forward()
         {
+            if (_showMode) return;
             if (_queue.Length > 0)
             {
                 PlayTrack(_queue, 0);

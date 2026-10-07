@@ -423,7 +423,7 @@ namespace Yamadev.YamaStream.UI
 
         public void SetTimeByHelper()
         {
-            if (_progressHelper == null || !CheckPermission()) return;
+            if (_progressHelper == null || !CheckPermission() || _controller.ShowMode) return;
             _controller.TakeOwnership();
             _controller.SetTime(_controller.Duration * _progressHelper.Percent);
         }
@@ -455,14 +455,14 @@ namespace Yamadev.YamaStream.UI
 
         public void Loop()
         {
-            if (!CheckPermission()) return;
+            if (!CheckPermission() || _controller.ShowMode) return;
             _controller.TakeOwnership();
             _controller.Loop = true;
         }
 
         public void LoopOff()
         {
-            if (!CheckPermission()) return;
+            if (!CheckPermission() || _controller.ShowMode) return;
             _controller.TakeOwnership();
             _controller.Loop = false;
         }
@@ -475,7 +475,7 @@ namespace Yamadev.YamaStream.UI
 
         public void SetRepeat(bool on)
         {
-            if (!CheckPermission()) return;
+            if (!CheckPermission() || _controller.ShowMode) return;
             RepeatStatus status = _controller.Repeat.ToRepeatStatus();
             if (on) status.TurnOn(); 
             else status.TurnOff();
@@ -485,7 +485,7 @@ namespace Yamadev.YamaStream.UI
 
         public void SetRepeatStart()
         {
-            if (_repeatSlider == null || _controller.Stopped) return;
+            if (_repeatSlider == null || _controller.Stopped || _controller.ShowMode) return;
             if (!_controller.Repeat.ToRepeatStatus().IsOn())
             {
                 RepeatStatus status = _controller.Repeat.ToRepeatStatus();
@@ -498,7 +498,7 @@ namespace Yamadev.YamaStream.UI
 
         public void SetRepeatEnd()
         {
-            if (_repeatSlider == null || _controller.Stopped) return;
+            if (_repeatSlider == null || _controller.Stopped || _controller.ShowMode) return;
             if (!_controller.Repeat.ToRepeatStatus().IsOn())
             {
                 RepeatStatus status = _controller.Repeat.ToRepeatStatus();

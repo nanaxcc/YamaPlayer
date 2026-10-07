@@ -13,6 +13,7 @@ namespace Yamadev.YamaStream
         [SerializeField, Range(0f, 1f)] float _syncMargin = 0.3f;
         [UdonSynced] float _syncTime = 0f;
         [UdonSynced] int _serverTimeMilliseconds = 0;
+        [UdonSynced] bool _hasSyncTime;
         [UdonSynced, FieldChangeCallback(nameof(KaraokeMode))] KaraokeMode _karaokeMode = KaraokeMode.None;
         [UdonSynced, FieldChangeCallback(nameof(KaraokeMembers))] string[] _karaokeMembers = new string[0];
         float _lastSync = 0f;
@@ -78,6 +79,7 @@ namespace Yamadev.YamaStream
             {
                 _syncTime = Mathf.Clamp(value, 0f, Duration);
                 _serverTimeMilliseconds = Networking.GetServerTimeInMilliseconds();
+                _hasSyncTime = true;
             }
         }
 
@@ -85,14 +87,29 @@ namespace Yamadev.YamaStream
         {
             _syncTime = 0f;
             _serverTimeMilliseconds = 0;
+            _hasSyncTime = false;
         }
 
-        public float NetworkOffset => Paused ? 0 : (Networking.GetServerTimeInMilliseconds() - _serverTimeMilliseconds) / 1000f * Speed;
+        public float NetworkOffset
+        {
+            get
+            {
+                if (Paused || !_hasSyncTime) return 0f;
+                int milliseconds = Networking.GetServerTimeInMilliseconds() - _serverTimeMilliseconds;
+                return milliseconds / 1000f * Speed;
+            }
+        }
         public void ForceSync() => DoSync(true);
         public void DoSync(bool force = false)
         {
-            if (IsLive || Stopped || _serverTimeMilliseconds == 0) return;
+            if (IsLive || Stopped || !_hasSyncTime) return;
             float targetTime = Mathf.Clamp(_syncTime + NetworkOffset + VideoStandardDelay, 0f, Duration);
+            if (_showMode)
+            {
+                float intervalStart = _hasStart ? _startTime : 0f;
+                targetTime = Mathf.Max(intervalStart, targetTime);
+                if (_hasEnd) targetTime = Mathf.Min(_endTime, targetTime);
+            }
             float timeMargin = Mathf.Abs(VideoTime - targetTime);
             if (force || timeMargin >= _syncMargin) VideoPlayerHandle.VideoTime = targetTime;
             _lastSync = Time.time;

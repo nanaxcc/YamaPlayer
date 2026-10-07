@@ -55,5 +55,13 @@ namespace Yamadev.YamaStream
         public virtual void OnKaraokeModeChanged() { }
         public virtual void OnKaraokeMemberChanged() { }
         public virtual void OnPermissionChanged() { }
+        public virtual void OnPlaybackNotice(int kind, int reason, int generation,
+            int songIndex, int selectionRevision, int runId, int sequence) { }
+
+        // Local callback context. Video SDK callbacks do not carry a request ID;
+        // consumers must also validate the active handle and phase.
+        public virtual void OnPlaybackHandleEvent(int playerType, int loadAttempt,
+            int eventKind, int errorCode) { }
+        public virtual bool IsPlaybackHandleEventCurrent(int playerType, int loadAttempt) => true;
     }
 }
