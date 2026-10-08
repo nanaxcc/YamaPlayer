@@ -37,7 +37,6 @@ namespace Yamadev.YamaStream
         bool _creatingShowTrack;
         bool _authorizedShowStart;
         int _localLoadAttempt;
-        int _boundHandleLoadAttempt;
         bool _intervalValidated;
         bool _intervalPrepared;
         bool _intervalSeekPending;
@@ -385,7 +384,6 @@ namespace Yamadev.YamaStream
             if (_pendingResolveRevision != _resolveRevision) return;
             _nextVideoRequestTime = Time.time + 5.1f;
             _localLoadAttempt++;
-            _boundHandleLoadAttempt = _localLoadAttempt;
             foreach (VideoPlayerHandle handle in _videoPlayerHandles) handle.SetLoadAttempt(_localLoadAttempt);
             if (_localLoadPhase != 0 && !_isReload) VideoPlayerHandle.LoadUrl(_pendingVideoUrl);
             else VideoPlayerHandle.PlayUrl(_pendingVideoUrl);

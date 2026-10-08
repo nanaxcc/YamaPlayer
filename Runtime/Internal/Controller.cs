@@ -609,13 +609,6 @@ namespace Yamadev.YamaStream
             return playerType == (int)_videoPlayerType;
         }
 
-        public override void OnPlaybackHandleEvent(int playerType, int loadAttempt,
-            int eventKind, int errorCode)
-        {
-            if (!IsPlaybackHandleEventCurrent(playerType, loadAttempt)) return;
-            _boundHandleLoadAttempt = loadAttempt;
-        }
-
         void BeginIntervalPreparation()
         {
             if (!_showMode || !VideoPlayerHandle.IsReady) return;
